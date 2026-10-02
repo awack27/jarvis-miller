@@ -38,6 +38,21 @@ class Function:
     function_body: str
     function_summary: str | None = None
 
+    def to_dict(self) -> dict:
+        return {
+            "function_header": self.function_header,
+            "function_body": self.function_body,
+            "function_summary": self.function_summary,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Function":
+        return cls(
+            function_header=data["function_header"],
+            function_body=data["function_body"],
+            function_summary=data.get("function_summary"),
+        )
+
     def create_summary(self, ollama_client: OllamaClient):
         prompt = f"""
         Summarize the following Python function in a maximum of 15 words. 
@@ -53,6 +68,27 @@ class Class:
     class_name: str
     class_methods: list[Function] = field(default_factory=list)
     class_summary: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "class_name": self.class_name,
+            "class_methods": [
+                method.to_dict()
+                for method in self.class_methods
+            ],
+            "class_summary": self.class_summary,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Class":
+        return cls(
+            class_name=data["class_name"],
+            class_methods=[
+                Function.from_dict(method)
+                for method in data.get("class_methods", [])
+            ],
+            class_summary=data.get("class_summary"),
+        )
 
     def create_summary(self, ollama_client: OllamaClient):
         methods = "\n".join(
@@ -91,6 +127,40 @@ class File:
     def __post_init__(self):
         if self.file_path.suffix == ".py":
             self._parse_python()
+
+    def to_dict(self) -> dict:
+        return {
+            "file_path": str(self.file_path),
+            "file_imports": self.file_imports,
+            "file_classes": [
+                class_.to_dict()
+                for class_ in self.file_classes
+            ],
+            "functions": [
+                function.to_dict()
+                for function in self.functions
+            ],
+            "file_summary": self.file_summary,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "File":
+        file = cls.__new__(cls)
+
+        file.file_path = Path(data["file_path"])
+        file.file_imports = data.get("file_imports", "")
+        file.file_classes = [
+            Class.from_dict(class_)
+            for class_ in data.get("file_classes", [])
+        ]
+        file.functions = [
+            Function.from_dict(function)
+            for function in data.get("functions", [])
+        ]
+        file.file_summary = data.get("file_summary")
+
+        return file
+
 
     def _parse_python(self):
         try:
@@ -208,6 +278,37 @@ class Folder:
     def __post_init__(self):
         self._parse()
 
+    def to_dict(self) -> dict:
+        return {
+            "folder_path": str(self.folder_path),
+            "files": [
+                file.to_dict()
+                for file in self.files
+            ],
+            "folders": [
+                folder.to_dict()
+                for folder in self.folders
+            ],
+            "folder_summary": self.folder_summary,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Folder":
+        folder = cls.__new__(cls)
+
+        folder.folder_path = Path(data["folder_path"])
+        folder.files = [
+            File.from_dict(file)
+            for file in data.get("files", [])
+        ]
+        folder.folders = [
+            Folder.from_dict(child_folder)
+            for child_folder in data.get("folders", [])
+        ]
+        folder.folder_summary = data.get("folder_summary")
+
+        return folder
+
     def _parse(self):
         if not self.folder_path.exists():
             return
@@ -278,6 +379,46 @@ class Repository:
         self.repository_summary: str | None = None
 
         self._parse()
+
+    def to_dict(self) -> dict:
+        return {
+            "repository_path": str(self.repository_path),
+            "files": [
+                file.to_dict()
+                for file in self.files
+            ],
+            "folders": [
+                folder.to_dict()
+                for folder in self.folders
+            ],
+            "repository_summary": self.repository_summary,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict,
+        ollama_client: OllamaClient | None = None
+    ) -> "Repository":
+        repository = cls.__new__(cls)
+
+        repository.repository_path = Path(
+            data["repository_path"]
+        )
+        repository.files = [
+            File.from_dict(file)
+            for file in data.get("files", [])
+        ]
+        repository.folders = [
+            Folder.from_dict(folder)
+            for folder in data.get("folders", [])
+        ]
+        repository.repository_summary = data.get(
+            "repository_summary"
+        )
+        repository.ollama_client = ollama_client
+
+        return repository
 
     def _parse(self):
         if not self.repository_path.exists():
@@ -512,6 +653,7 @@ class Repository:
         # --------------------------------------------------------------
 
         self._create_repository_summary()
+
 
     def _create_folder_summaries(self, folder: Folder):
         for child_folder in folder.folders:

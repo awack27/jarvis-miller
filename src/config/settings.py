@@ -11,6 +11,8 @@ load_dotenv()
 
 AGENT_NAME = "Jarvis Miller"
 
+ROOT_PATH = "/home/andreas/projects/jarvis-miller"
+
 CHECK_INTERVAL = 1800  # 30 Minuten
 
 

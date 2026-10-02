@@ -2,6 +2,7 @@ from pathlib import Path
 
 from git import Repo
 from git import GitCommandError
+import subprocess
 
 
 class GitClient:
@@ -144,3 +145,19 @@ class GitClient:
         )
 
         self.push_current_branch()
+
+    def get_current_commit(self) -> str:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo_path),
+                "rev-parse",
+                "HEAD"
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        return result.stdout.strip()

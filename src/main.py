@@ -21,19 +21,26 @@ def main():
     git_client = GitClient(
         repo_path=settings.REPOSITORY_PATH
     )
+    logging.info("GitClient ready")
+
     github_client = GitHubClient(
         token_path=settings.GITHUB_TOKEN_PATH,
         repository_name=settings.REPOSITORY_NAME,
         bot_username=settings.BOT_USERNAME
     )
+    logging.info("GithubClient ready")
+
     ollama_client = OllamaClient(
         model=settings.OLLAMA_MODEL
     )
+    logging.info("OllamaClient ready")
+
     prompt_builder = PromptBuilder()
-    memory_handler = MemoryHandler(settings.REPOSITORY_PATH, ollama_client=ollama_client)
-    print("Now add description")
-    memory_handler.get_repository().create_summary()
+    
+    logging.info("MemoryHandler reads repository...")
+    memory_handler = MemoryHandler(settings.REPOSITORY_PATH, ollama_client=ollama_client)    
     memory_handler.get_repository().print_repo(functions=True, summaries=True)
+    logging.info("MemoryHandler ready")
 
     while True:
 
