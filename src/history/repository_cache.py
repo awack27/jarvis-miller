@@ -33,14 +33,14 @@ class RepositoryCache:
             exist_ok=True
         )
 
-        last_commit = self.git_client.get_current_commit()
+        self.last_commit = self.git_client.get_current_commit()
 
         data = {
             "cache_version": self.CACHE_VERSION,
             "repository_path": str(
                 repository.repository_path
             ),
-            "last_commit": last_commit,
+            "last_commit": self.last_commit,
             "repository": repository.to_dict(),
         }
 

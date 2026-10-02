@@ -4,6 +4,7 @@ import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 from src.llm.ollama_client import OllamaClient
+from src.git_tools.git_client import GitClient
 
 
 
@@ -91,6 +92,9 @@ class Class:
         )
 
     def create_summary(self, ollama_client: OllamaClient):
+        for method in self.class_methods:
+            method.create_summary(ollama_client)
+
         methods = "\n".join(
             f"- {method.function_header}: {method.function_summary}"
             for method in self.class_methods
@@ -109,7 +113,7 @@ Class name:
 
 Methods:
 {methods}
-"""
+    """
 
         self.class_summary = ollama_client.generate(prompt)
 
@@ -228,8 +232,16 @@ class File:
             function_header=lines[start],
             function_body=function_body
         )
-    
+
     def create_summary(self, ollama_client: OllamaClient):
+        # Top-level functions
+        for function in self.functions:
+            function.create_summary(ollama_client)
+
+        # Classes inklusive Methoden
+        for class_ in self.file_classes:
+            class_.create_summary(ollama_client)
+
         classes = "\n".join(
             f"- {class_.class_name}: {class_.class_summary}"
             for class_ in self.file_classes
@@ -261,7 +273,7 @@ Classes:
 
 Functions:
 {functions}
-"""
+    """
 
         self.file_summary = ollama_client.generate(prompt)
 
@@ -334,6 +346,14 @@ class Folder:
                 )
     
     def create_summary(self, ollama_client: OllamaClient):
+        # Zuerst alle Dateien
+        for file in self.files:
+            file.create_summary(ollama_client)
+
+        # Danach alle Unterordner rekursiv
+        for folder in self.folders:
+            folder.create_summary(ollama_client)
+
         files = "\n".join(
             f"- {file.file_path.name}: {file.file_summary}"
             for file in self.files
@@ -362,11 +382,35 @@ Files:
 
 Subfolders:
 {folders}
-"""
+    """
 
         self.folder_summary = ollama_client.generate(prompt)
 
         return self.folder_summary
+
+    def update_file(self, updated_file: File) -> bool:
+        for index, existing_file in enumerate(self.files):
+            if existing_file.file_path.resolve() == updated_file.file_path.resolve():
+                self.files[index] = updated_file
+                return True
+
+        for folder in self.folders:
+            if folder.update_file(updated_file):
+                return True
+
+        return False
+
+    def remove_file(self, file_path: Path) -> bool:
+        for index, existing_file in enumerate(self.files):
+            if existing_file.file_path.resolve() == file_path.resolve():
+                self.files.pop(index)
+                return True
+
+        for folder in self.folders:
+            if folder.remove_file(file_path):
+                return True
+
+        return False
 
 class Repository:
     def __init__(self, repository_path: Path | str, ollama_client: OllamaClient):
@@ -614,56 +658,15 @@ class Repository:
                 "OllamaClient is required to create summaries."
             )
 
-        # --------------------------------------------------------------
-        # 1. Functions
-        # --------------------------------------------------------------
-
-        for file in self.files:
-            for function in file.functions:
-                function.create_summary(self.ollama_client)
-
-            for class_ in file.file_classes:
-                for method in class_.class_methods:
-                    method.create_summary(self.ollama_client)
-
-        # --------------------------------------------------------------
-        # 2. Classes
-        # --------------------------------------------------------------
-
-        for file in self.files:
-            for class_ in file.file_classes:
-                class_.create_summary(self.ollama_client)
-
-        # --------------------------------------------------------------
-        # 3. Files
-        # --------------------------------------------------------------
-
+        # Dateien im Root
         for file in self.files:
             file.create_summary(self.ollama_client)
 
-        # --------------------------------------------------------------
-        # 4. Folders
-        # --------------------------------------------------------------
-
+        # Ordner inklusive kompletter Rekursion
         for folder in self.folders:
-            self._create_folder_summaries(folder)
-
-        # --------------------------------------------------------------
-        # 5. Repository
-        # --------------------------------------------------------------
+            folder.create_summary(self.ollama_client)
 
         self._create_repository_summary()
-
-
-    def _create_folder_summaries(self, folder: Folder):
-        for child_folder in folder.folders:
-            self._create_folder_summaries(child_folder)
-
-        for file in folder.files:
-            # The files were already summarized above.
-            pass
-
-        folder.create_summary(self.ollama_client)
 
     def _create_repository_summary(self):
         files = "\n".join(
@@ -708,3 +711,209 @@ Folders:
             result += "\n" + self._build_folder_summary(child)
 
         return result
+
+    def update(self, old_commit: str, ollama_client) -> None:
+        git_client = GitClient(self.repository_path)
+
+        changed_files = git_client.get_changed_files(old_commit)
+
+        print("OLD COMMIT:", old_commit)
+        print("CHANGED FILES:")
+
+        # --------------------------------------------------------------
+        # Rekursive Funktion zum Aktualisieren einer Datei
+        # --------------------------------------------------------------
+
+        def update_folder(
+            folder: Folder,
+            updated_file: File | None,
+            file_path: Path,
+            deleted: bool = False,
+        ) -> bool:
+
+            # Datei direkt in diesem Folder
+            for index, existing_file in enumerate(folder.files):
+                if existing_file.file_path.resolve() == file_path:
+
+                    if deleted:
+                        print(
+                            f"     Removing file from folder: "
+                            f"{file_path}"
+                        )
+
+                        folder.files.pop(index)
+
+                    else:
+                        print(
+                            f"     Replacing file in folder: "
+                            f"{file_path}"
+                        )
+
+                        folder.files[index] = updated_file
+
+                    # Folder wurde verändert → Summary neu erstellen
+                    folder.create_summary(ollama_client)
+
+                    return True
+
+            # Rekursiv in Unterordnern suchen
+            for child_folder in folder.folders:
+
+                if update_folder(
+                    child_folder,
+                    updated_file,
+                    file_path,
+                    deleted,
+                ):
+                    # Ein Unterordner wurde verändert.
+                    # Deshalb muss auch dieser Folder neu zusammengefasst werden.
+                    folder.create_summary(ollama_client)
+
+                    return True
+
+            return False
+
+        # --------------------------------------------------------------
+        # Geänderte Dateien bearbeiten
+        # --------------------------------------------------------------
+
+        for file_path in changed_files:
+
+            print("  ->", file_path)
+
+            if file_path.suffix not in SUPPORTED_EXTENSIONS:
+                continue
+
+            # Git liefert relative Pfade
+            file_path = (
+                self.repository_path / file_path
+            ).resolve()
+
+            # ----------------------------------------------------------
+            # Datei wurde gelöscht
+            # ----------------------------------------------------------
+
+            if not file_path.exists():
+
+                print(
+                    "     File was deleted:",
+                    file_path
+                )
+
+                # Root-Datei entfernen
+                self.files = [
+                    file
+                    for file in self.files
+                    if file.file_path.resolve() != file_path
+                ]
+
+                # Datei rekursiv aus Folder entfernen
+                for folder in self.folders:
+                    if update_folder(
+                        folder,
+                        None,
+                        file_path,
+                        deleted=True,
+                    ):
+                        break
+
+                continue
+
+            # ----------------------------------------------------------
+            # Datei neu einlesen
+            # ----------------------------------------------------------
+
+            updated_file = File(file_path)
+
+            print(
+                "     File loaded:",
+                updated_file.file_path
+            )
+
+            # Die komplette Summary-Kette der Datei:
+            #
+            # Function
+            #   ↓
+            # Class
+            #   ↓
+            # File
+            #
+            updated_file.create_summary(ollama_client)
+
+            print("     File summary created")
+
+            # ----------------------------------------------------------
+            # Root-Datei ersetzen
+            # ----------------------------------------------------------
+
+            for index, existing_file in enumerate(self.files):
+
+                if existing_file.file_path.resolve() == file_path:
+
+                    print("     Replacing root file")
+
+                    self.files[index] = updated_file
+
+                    break
+
+            else:
+                # ------------------------------------------------------
+                # Datei in Folder suchen und ersetzen
+                # ------------------------------------------------------
+
+                file_updated = False
+
+                for folder in self.folders:
+
+                    if update_folder(
+                        folder,
+                        updated_file,
+                        file_path,
+                    ):
+                        file_updated = True
+                        break
+
+                # ------------------------------------------------------
+                # Datei existiert noch nicht → hinzufügen
+                # ------------------------------------------------------
+
+                if not file_updated:
+
+                    print(
+                        "     Adding new file:",
+                        file_path
+                    )
+
+                    parent_folder = file_path.parent
+
+                    # Datei direkt im Repository
+                    if parent_folder == self.repository_path:
+
+                        self.files.append(updated_file)
+
+                    else:
+                        # Neuen File-Eintrag in bestehenden Folder einfügen
+                        for folder in self.folders:
+
+                            if (
+                                folder.folder_path.resolve()
+                                == parent_folder
+                            ):
+                                folder.files.append(updated_file)
+
+                                # Folder und dessen Parent-Folder
+                                # müssten danach ebenfalls aktualisiert
+                                folder.create_summary(
+                                    ollama_client
+                                )
+
+                                file_updated = True
+                                break
+
+        # --------------------------------------------------------------
+        # Repository-Summary neu erstellen
+        # --------------------------------------------------------------
+
+        self._create_repository_summary()
+
+        print("UPDATE FINISHED")

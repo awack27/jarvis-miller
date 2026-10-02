@@ -19,7 +19,7 @@ def main():
     logging.info("Starting Jarvis Miller...")
 
     git_client = GitClient(
-        repo_path=settings.REPOSITORY_PATH
+        repository_path=settings.REPOSITORY_PATH
     )
     logging.info("GitClient ready")
 
@@ -36,7 +36,7 @@ def main():
     logging.info("OllamaClient ready")
 
     prompt_builder = PromptBuilder()
-    
+
     logging.info("MemoryHandler reads repository...")
     memory_handler = MemoryHandler(settings.REPOSITORY_PATH, ollama_client=ollama_client)    
     memory_handler.get_repository().print_repo(functions=True, summaries=True)

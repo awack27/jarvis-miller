@@ -4,6 +4,7 @@ from .conversation import Conversation, Chat
 from .repository import Repository
 from .repository_cache import RepositoryCache
 from src.llm.ollama_client import OllamaClient
+from src.git_tools.git_client import GitClient
 
 
 class MemoryHandler:
@@ -20,6 +21,8 @@ class MemoryHandler:
         self.repository_cache = RepositoryCache(
             repository_path=self.repository_path
         )
+
+        self.git_client = GitClient(repository_path)
 
         self.repository = self._load_repository()
 
@@ -44,9 +47,22 @@ class MemoryHandler:
     def _load_repository(self) -> Repository:
         if self.repository_cache.exists():
             if self.repository_cache.is_up_to_date():
+                print("Repo up to date - load cache")
                 return self.repository_cache.load_if_valid(
                     ollama_client=self.ollama_client
                 )
+            else:
+                print("Repo is outdated")
+                last_commit = self.repository_cache.get_last_commit()
+                if self.git_client.commit_exists(last_commit):
+                    print("Repo is outdated - load before update")
+                    repository = self.repository_cache.load(self.ollama_client)
+                    print("Repo is outdated - now update")
+                    repository.update(last_commit, self.ollama_client)
+                    self.repository_cache.save(repository)
+                    return repository
+                else:
+                    print("Repo is outdate - commit does not exist -> new cache")
 
         repository = Repository(
             repository_path=self.repository_path,
