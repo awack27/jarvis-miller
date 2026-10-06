@@ -6,6 +6,7 @@ from src.git_tools.git_client import GitClient
 from src.github_api.github_client import GitHubClient
 from src.llm.ollama_client import OllamaClient
 from src.llm.prompt_builder import PromptBuilder
+from src.history.memory_handler import MemoryHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,17 +19,28 @@ def main():
     logging.info("Starting Jarvis Miller...")
 
     git_client = GitClient(
-        repo_path=settings.REPOSITORY_PATH
+        repository_path=settings.REPOSITORY_PATH
     )
+    logging.info("GitClient ready")
+
     github_client = GitHubClient(
         token_path=settings.GITHUB_TOKEN_PATH,
         repository_name=settings.REPOSITORY_NAME,
         bot_username=settings.BOT_USERNAME
     )
+    logging.info("GithubClient ready")
+
     ollama_client = OllamaClient(
         model=settings.OLLAMA_MODEL
     )
+    logging.info("OllamaClient ready")
+
     prompt_builder = PromptBuilder()
+
+    logging.info("MemoryHandler reads repository...")
+    memory_handler = MemoryHandler(settings.REPOSITORY_PATH, ollama_client=ollama_client)    
+    memory_handler.get_repository().print_repo(functions=True, summaries=True)
+    logging.info("MemoryHandler ready")
 
     while True:
 

@@ -2,20 +2,21 @@ from pathlib import Path
 
 from git import Repo
 from git import GitCommandError
+import subprocess
 
 
 class GitClient:
 
-    def __init__(self, repo_path: str):
+    def __init__(self, repository_path: str):
 
-        self.repo_path = Path(repo_path)
+        self.repository_path = Path(repository_path)
 
-        if not self.repo_path.exists():
+        if not self.repository_path.exists():
             raise FileNotFoundError(
-                f"Repository not found: {repo_path}"
+                f"Repository not found: {repository_path}"
             )
 
-        self.repo = Repo(repo_path)
+        self.repo = Repo(repository_path)
 
     def clone_repository(
         self,
@@ -144,3 +145,49 @@ class GitClient:
         )
 
         self.push_current_branch()
+
+    def get_current_commit(self) -> str:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repository_path),
+                "rev-parse",
+                "HEAD"
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        return result.stdout.strip()
+
+    def get_changed_files(self, old_commit: str) -> list[Path]:
+        result = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--name-only",
+                old_commit,
+            ],
+            cwd=self.repository_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        return [
+            Path(line)
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ]
+
+    def commit_exists(self, commit: str) -> bool:
+        result = subprocess.run(
+            ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+            cwd=self.repository_path,
+            capture_output=True,
+            text=True,
+        )
+
+        return result.returncode == 0
